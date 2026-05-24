@@ -14,5 +14,5 @@ class ApiConfig {
   // ← Change this to your PC's IP address
   static const String baseUrl = "http://192.168.1.2:3001";
 
-  static const Duration timeout = Duration(seconds: 15);
+  static const Duration timeout = Duration(seconds: 45);
 }

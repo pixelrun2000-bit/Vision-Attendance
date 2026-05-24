@@ -53,7 +53,12 @@ const PORT = process.env.PORT || 3001;
     io.on("connection", (socket) => {
       console.log(`[WS] Client connected: ${socket.id}`);
 
-      // Client can join a specific room channel to get live updates
+      // Client joins their personal room for notifications
+      socket.on("user:join", (userId) => {
+        socket.join(`user:${userId}`);
+        console.log(`[WS] ${socket.id} joined user:${userId}`);
+      });
+
       socket.on("room:join", (roomId) => {
         socket.join(`room:${roomId}`);
         console.log(`[WS] ${socket.id} joined room:${roomId}`);
@@ -77,7 +82,7 @@ const PORT = process.env.PORT || 3001;
       console.log(`║  HTTP     →  http://0.0.0.0:${PORT}              ║`);
       console.log(`║  WS/IO    →  ws://0.0.0.0:${PORT}                ║`);
       console.log(`║  Network  →  http://${localIp}:${PORT}          ║`);
-      console.log(`║  AI proxy →  http://${localIp}:5000           ║`);
+      console.log(`║  AI proxy →  http://127.0.0.1:5000           ║`);
       console.log(`║  DB       →  ${process.env.DB_NAME}@${process.env.DB_HOST}          ║`);
       console.log("╠══════════════════════════════════════════════════╣");
       console.log("║  Real-time rooms enabled (Socket.IO)            ║");

@@ -51,6 +51,12 @@ class UserProfile {
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
     try {
+      String rawPhoto = (json['photoUrl'] ?? json['photo_url'] ?? '') as String;
+      String photoUrl = rawPhoto;
+      if (rawPhoto.isNotEmpty && !rawPhoto.startsWith('http')) {
+        photoUrl = '${ApiConfig.baseUrl}$rawPhoto';
+      }
+
       return UserProfile(
         id: (json['id'] as num?)?.toInt() ?? 0,
         fullNameAr: (json['fullNameAr'] ?? json['full_name_ar'] ?? '') as String,
@@ -66,7 +72,7 @@ class UserProfile {
             : json['date_of_birth'] != null
                 ? DateTime.tryParse(json['date_of_birth'].toString())
                 : null,
-        photoUrl: (json['photoUrl'] ?? json['photo_url'] ?? '') as String,
+        photoUrl: photoUrl,
         role: (json['role'] ?? 'employee') as String,
         token: (json['token'] ?? '') as String,
       );
@@ -98,8 +104,31 @@ class UserProfile {
   }
 }
 
+class UserProfileState {
+  final UserProfile? user;
+  final bool isInitialized;
+  final bool showSplash;
 
-class UserProfileController extends Notifier<UserProfile?> {
+  UserProfileState({
+    this.user,
+    this.isInitialized = false,
+    this.showSplash = true,
+  });
+
+  UserProfileState copyWith({
+    UserProfile? user,
+    bool? isInitialized,
+    bool? showSplash,
+  }) {
+    return UserProfileState(
+      user: user ?? this.user,
+      isInitialized: isInitialized ?? this.isInitialized,
+      showSplash: showSplash ?? this.showSplash,
+    );
+  }
+}
+
+class UserProfileController extends Notifier<UserProfileState> {
   static const _storageKey = 'session_user';
 
   final ApiClient _api = ApiClient(
@@ -107,22 +136,29 @@ class UserProfileController extends Notifier<UserProfile?> {
   );
 
   @override
-  UserProfile? build() {
+  UserProfileState build() {
     Future.microtask(_restoreSession);
-    return null;
+    return UserProfileState();
   }
 
   Future<void> _restoreSession() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_storageKey);
 
-    if (raw == null) return;
+    if (raw == null) {
+      state = state.copyWith(isInitialized: true);
+      return;
+    }
 
     try {
       final data = jsonDecode(raw);
-      state = UserProfile.fromJson(Map<String, dynamic>.from(data));
+      state = UserProfileState(
+        user: UserProfile.fromJson(Map<String, dynamic>.from(data)),
+        isInitialized: true,
+      );
     } catch (_) {
       await prefs.remove(_storageKey);
+      state = state.copyWith(isInitialized: true);
     }
   }
 
@@ -151,7 +187,7 @@ class UserProfileController extends Notifier<UserProfile?> {
     userMap['token'] = data['token'];
 
     final profile = UserProfile.fromJson(userMap);
-    state = profile;
+    state = state.copyWith(user: profile);
     await _persist(profile);
   }
 
@@ -188,7 +224,7 @@ class UserProfileController extends Notifier<UserProfile?> {
     userMap['token'] = data['token'];
 
     final profile = UserProfile.fromJson(userMap);
-    state = profile;
+    state = state.copyWith(user: profile);
     await _persist(profile);
   }
 
@@ -196,7 +232,7 @@ class UserProfileController extends Notifier<UserProfile?> {
   // REFRESH
   // ─────────────────────────────────────────────
   Future<void> refreshMe() async {
-    final current = state;
+    final current = state.user;
     if (current == null) return;
 
     final data = await _api.getJson(
@@ -210,8 +246,8 @@ class UserProfileController extends Notifier<UserProfile?> {
 
     userMap['token'] = current.token;
 
-    state = UserProfile.fromJson(userMap);
-    await _persist(state!);
+    state = state.copyWith(user: UserProfile.fromJson(userMap));
+    await _persist(state.user!);
   }
 
   // ─────────────────────────────────────────────
@@ -222,7 +258,7 @@ class UserProfileController extends Notifier<UserProfile?> {
     required String fullNameEn,
     required String phone,
   }) async {
-    final current = state;
+    final current = state.user;
     if (current == null) return;
 
     final data = await _api.putJson(
@@ -239,7 +275,7 @@ class UserProfileController extends Notifier<UserProfile?> {
     updated['token'] = current.token;
 
     final profile = UserProfile.fromJson(updated);
-    state = profile;
+    state = state.copyWith(user: profile);
     await _persist(profile);
   }
 
@@ -247,7 +283,7 @@ class UserProfileController extends Notifier<UserProfile?> {
   // UPLOAD IMAGE (FIXED)
   // ─────────────────────────────────────────────
   Future<void> uploadProfileImage(String filePath) async {
-    final current = state;
+    final current = state.user;
     if (current == null) return;
 
     final data = await _api.postMultipart(
@@ -265,7 +301,7 @@ class UserProfileController extends Notifier<UserProfile?> {
           : '${ApiConfig.baseUrl}$photoPath',
     );
 
-    state = updated;
+    state = state.copyWith(user: updated);
     await _persist(updated);
   }
 
@@ -276,7 +312,7 @@ class UserProfileController extends Notifier<UserProfile?> {
     required double latitude,
     required double longitude,
   }) async {
-    final current = state;
+    final current = state.user;
     if (current == null) return;
 
     await _api.postJson(
@@ -293,13 +329,17 @@ class UserProfileController extends Notifier<UserProfile?> {
   // SIGN OUT
   // ─────────────────────────────────────────────
   Future<void> signOut() async {
-    state = null;
+    state = state.copyWith(user: null);
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_storageKey);
+  }
+
+  void dismissSplash() {
+    state = state.copyWith(showSplash: false);
   }
 }
 
 final userProfileProvider =
-    NotifierProvider<UserProfileController, UserProfile?>(
+    NotifierProvider<UserProfileController, UserProfileState>(
   UserProfileController.new,
 );

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../config/api_config.dart';
 import '../../services/api_client.dart';
 import '../../state/user_profile_state.dart';
+import '../../state/vacation_state.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
 
@@ -54,7 +55,7 @@ class _VacationRequestScreenState
   }
 
   Future<void> _submit() async {
-    final user = ref.read(userProfileProvider);
+    final user = ref.read(userProfileProvider).user;
 
     if (user == null) return;
 
@@ -89,6 +90,7 @@ class _VacationRequestScreenState
       );
 
       if (mounted) {
+        ref.read(vacationProvider.notifier).loadVacations();
         context.pop();
 
         ScaffoldMessenger.of(context).showSnackBar(

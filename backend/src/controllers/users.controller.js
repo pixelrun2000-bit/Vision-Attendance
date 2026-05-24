@@ -3,6 +3,9 @@ const bcrypt = require("bcryptjs");
 const { pool } = require("../config/db");
 const fs = require("fs");
 const path = require("path");
+const { createAndNotify } = require("../utils/notification.helper");
+const { sendWelcomeEmail } = require("../utils/email.helper");
+const { forwardToAI } = require("../utils/ai.helper");
 
 // GET /api/users  ← React Dashboard (list all people)
 const getUsers = async (req, res, next) => {
@@ -75,22 +78,73 @@ const createUser = async (req, res, next) => {
       role, department,
     } = req.body;
 
-    if (!full_name_en || !username || !email || !password)
-      return res.status(400).json({ success: false, message: "Required fields missing" });
+    console.log("Create User Request Body:", req.body);
+    console.log("Create User Request File:", req.file ? "Uploaded" : "No File");
 
-    const hash = await bcrypt.hash(password || "changeme123", 10);
+    const final_full_name = (full_name_en || "").trim();
+    const final_email = (email || "").trim();
+    const final_username = (username || "").trim() || (final_full_name.toLowerCase().replace(/\s+/g, '.') + '.' + Date.now().toString().slice(-4));
+    const final_password = (password || "").trim() || "Vision@123";
+
+    if (!final_full_name || !final_email) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Required fields missing: ${!final_full_name ? 'Full Name' : ''} ${!final_email ? 'Email' : ''}`.trim()
+      });
+    }
+
+    const hash = await bcrypt.hash(final_password, 10);
     const org_id = req.user ? req.user.org_id : null;
+
+    let photo_url = null;
+    let is_face_enrolled = 0;
+    let face_person_id = null;
+
+    // Handle photo upload
+    if (req.file) {
+      const uploadsDir = path.join(process.cwd(), "uploads", "profiles");
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+      
+      const fileName = `user_new_${Date.now()}_${req.file.originalname}`;
+      const absolutePath = path.join(uploadsDir, fileName);
+      fs.writeFileSync(absolutePath, req.file.buffer);
+      photo_url = `/uploads/profiles/${fileName}`;
+    }
 
     const [result] = await pool.execute(
       `INSERT INTO users (full_name_ar, full_name_en, username, email, phone,
-        password_hash, national_id, employee_id, gender, date_of_birth, role, department, org_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        password_hash, national_id, employee_id, gender, date_of_birth, role, department, org_id, photo_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        full_name_ar || full_name_en, full_name_en, username, email, phone || null,
+        full_name_ar || final_full_name, final_full_name, final_username, final_email, phone || null,
         hash, national_id || null, employee_id || null, gender || null,
-        date_of_birth || null, role || "employee", department || null, org_id
+        date_of_birth || null, role || "employee", department || null, org_id, photo_url
       ]
     );
+
+    const userId = result.insertId;
+    face_person_id = `user_${userId}`;
+
+    // If photo uploaded -> Enroll in AI service
+    if (req.file) {
+      try {
+        const aiResult = await forwardToAI(
+          "/api/v1/enroll",
+          req.file.buffer,
+          req.file.originalname,
+          { person_id: face_person_id, name: full_name_en }
+        );
+        if (aiResult.success) {
+          is_face_enrolled = 1;
+          await pool.execute(
+            "UPDATE users SET face_person_id = ?, is_face_enrolled = 1 WHERE id = ?",
+            [face_person_id, userId]
+          );
+        }
+      } catch (aiErr) {
+        console.error("Auto AI Enrollment failed:", aiErr.message);
+      }
+    }
 
     const [newUser] = await pool.execute(
       `SELECT id, full_name_ar, full_name_en, username, email, phone,
@@ -99,7 +153,22 @@ const createUser = async (req, res, next) => {
       [result.insertId]
     );
 
-    // Real-time: broadcast to all web clients so the People list refreshes
+    // ── Real-time & Email ────────────────────────────────────────────────────
+    const adminName = req.user?.full_name_en || "System Admin";
+    
+    // 1. Send Real-time Notification
+    await createAndNotify(
+      req.app,
+      result.insertId,
+      `مرحباً بك في منظمة ${adminName}`,
+      `تم إنشاء حسابك بنجاح. الأدمن المسؤول: ${adminName}. كلمة المرور الافتراضية هي Vision@123`,
+      "system"
+    );
+
+    // 2. Send Welcome Email
+    await sendWelcomeEmail(email, full_name_en, username, password || "Vision@123", adminName);
+
+    // 3. Broadcast to web dashboard (for the list to refresh)
     const io = req.app.get("io");
     if (io) io.emit("users:update", { user: newUser[0], timestamp: new Date().toISOString() });
 

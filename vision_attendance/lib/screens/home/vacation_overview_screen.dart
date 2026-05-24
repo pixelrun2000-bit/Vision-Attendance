@@ -6,14 +6,31 @@ import '../../theme/app_theme.dart';
 import '../../navigation/app_router.dart';
 import '../../widgets/shared_widgets.dart';
 import '../../state/user_profile_state.dart';
+import '../../state/vacation_state.dart';
+import 'package:intl/intl.dart';
 
-class VacationOverviewScreen extends ConsumerWidget {
+class VacationOverviewScreen extends ConsumerStatefulWidget {
   const VacationOverviewScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final user = ref.watch(userProfileProvider);
+  ConsumerState<VacationOverviewScreen> createState() => _VacationOverviewScreenState();
+}
+
+class _VacationOverviewScreenState extends ConsumerState<VacationOverviewScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(vacationProvider.notifier).loadVacations();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = ref.watch(userProfileProvider).user;
+    final vacationState = ref.watch(vacationProvider);
     final blocked = user?.isStudent ?? false;
+
     return Scaffold(
       body: CustomScrollView(
         slivers: [
@@ -47,6 +64,13 @@ class VacationOverviewScreen extends ConsumerWidget {
                   decoration: BoxDecoration(
                     gradient: AppColors.primaryGradient,
                     borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.primary.withOpacity(0.3),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -55,7 +79,8 @@ class VacationOverviewScreen extends ConsumerWidget {
                           style: TextStyle(
                               color: Colors.white70,
                               fontSize: 11,
-                              letterSpacing: 1)),
+                              letterSpacing: 1,
+                              fontWeight: FontWeight.bold)),
                       const SizedBox(height: 6),
                       const Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
@@ -78,7 +103,7 @@ class VacationOverviewScreen extends ConsumerWidget {
                         'Your vacation cycle resets on January 1st. You have 3 pending approval requests.',
                         style: TextStyle(color: Colors.white70, fontSize: 13),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 20),
                       Row(
                         children: [
                           Expanded(
@@ -93,11 +118,12 @@ class VacationOverviewScreen extends ConsumerWidget {
                                       : context.push(AppRoutes.vacationRequest),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.white,
-                                side: const BorderSide(color: Colors.white54),
+                                side: const BorderSide(color: Colors.white54, width: 1.5),
                                 shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10)),
+                                    borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
                               ),
-                              child: const Text('Request Leave'),
+                              child: const Text('Request Leave', style: TextStyle(fontWeight: FontWeight.bold)),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -108,9 +134,11 @@ class VacationOverviewScreen extends ConsumerWidget {
                                 backgroundColor: Colors.white,
                                 foregroundColor: AppColors.primary,
                                 shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10)),
+                                    borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                elevation: 0,
                               ),
-                              child: const Text('View Calendar'),
+                              child: const Text('View Calendar', style: TextStyle(fontWeight: FontWeight.bold)),
                             ),
                           ),
                         ],
@@ -126,7 +154,7 @@ class VacationOverviewScreen extends ConsumerWidget {
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 24),
 
                 // ─── Quick Stats ───────────────────────────────────
                 Row(
@@ -150,89 +178,79 @@ class VacationOverviewScreen extends ConsumerWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 32),
 
                 // ─── Request History ───────────────────────────────
                 AppSectionHeader(
                   title: 'Request History',
-                  subtitle: 'Manage and track your previous leave applications.',
-                  action: GestureDetector(
-                    onTap: () {},
-                    child: const Text('Export PDF',
-                        style: TextStyle(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13)),
+                  subtitle: 'Manage and track your leave applications.',
+                  action: TextButton.icon(
+                    onPressed: () => ref.read(vacationProvider.notifier).loadVacations(),
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Refresh'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
 
-                ..._vacationRequests.map((r) => Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _VacationRequestCard(
-                        request: r,
-                        onTap: () =>
-                            context.push(AppRoutes.vacationRequestDetails),
-                      ),
-                    )),
+                if (vacationState.isLoading && vacationState.requests.isEmpty)
+                  const Center(child: Padding(
+                    padding: EdgeInsets.all(40),
+                    child: CircularProgressIndicator(),
+                  ))
+                else if (vacationState.requests.isEmpty)
+                  Center(child: Column(
+                    children: [
+                      const SizedBox(height: 40),
+                      Icon(Icons.beach_access_outlined, size: 64, color: Colors.grey.shade300),
+                      const SizedBox(height: 16),
+                      Text('No vacation requests found', style: TextStyle(color: Colors.grey.shade500)),
+                    ],
+                  ))
+                else
+                  ...vacationState.requests.map((r) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _VacationRequestCard(
+                          request: _mapToVacationRequest(r),
+                          onTap: () =>
+                              context.push(AppRoutes.vacationRequestDetails, extra: r),
+                        ),
+                      )),
 
-                const SizedBox(height: 24),
+                const SizedBox(height: 32),
 
                 // ─── Team Schedule (AI placeholder) ────────────────
                 AppSectionHeader(
-                  title: 'Team Schedule',
+                  title: 'AI Prediction',
                   subtitle:
-                      'Our AI Predictor suggests booking your next leave in June when team availability is highest (85%).',
+                      'Our AI Predictor suggests booking your next leave in June.',
                 ),
                 const SizedBox(height: 12),
                 Container(
-                  height: 140,
+                  padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: AppColors.border,
-                    borderRadius: BorderRadius.circular(16),
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.border),
                   ),
-                  child: Stack(
+                  child: Row(
                     children: [
-                      Center(
-                        child: Icon(Icons.map_rounded,
-                            size: 48, color: Colors.grey.shade400),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.auto_awesome, color: AppColors.success),
                       ),
-                      // ── AI MODULE PLACEHOLDER ───────────────────────
-                      // TODO: Show team geolocation / availability map
-                      // Using: google_maps_flutter or flutter_map
-                      // ───────────────────────────────────────────────
-                      Positioned(
-                        bottom: 12,
-                        left: 12,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                            boxShadow: [
-                              BoxShadow(
-                                  color: Colors.black.withOpacity(0.1),
-                                  blurRadius: 8)
-                            ],
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 8, height: 8,
-                                decoration: const BoxDecoration(
-                                  color: AppColors.success,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              const Text('OFFICE STATUS: 65% Hybrid Today',
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600)),
-                            ],
-                          ),
+                      const SizedBox(width: 16),
+                      const Expanded(
+                        child: Text(
+                          'Team availability is highest (85%) in June. Plan ahead for a higher approval chance!',
+                          style: TextStyle(fontSize: 13, height: 1.4),
                         ),
                       ),
                     ],
@@ -244,6 +262,39 @@ class VacationOverviewScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+
+  _VacationRequest _mapToVacationRequest(Map<String, dynamic> r) {
+    final type = r['type'] ?? 'Leave';
+    final status = (r['status'] as String? ?? 'pending').toLowerCase();
+    final start = DateTime.parse(r['start_date']);
+    final end = DateTime.parse(r['end_date']);
+    final days = r['days_count'] ?? 0;
+    
+    final dateRange = "${DateFormat('MMM d').format(start)} - ${DateFormat('MMM d').format(end)} ($days Days)";
+
+    IconData icon = Icons.beach_access_rounded;
+    Color color = const Color(0xFFF59E0B);
+    Color bg = const Color(0xFFFEF3C7);
+
+    if (type.toLowerCase().contains('sick')) {
+      icon = Icons.medical_services_rounded;
+      color = const Color(0xFFEF4444);
+      bg = const Color(0xFFFEE2E2);
+    } else if (type.toLowerCase().contains('personal')) {
+      icon = Icons.people_rounded;
+      color = const Color(0xFF10B981);
+      bg = const Color(0xFFD1FAE5);
+    }
+
+    return _VacationRequest(
+      title: type,
+      dateRange: dateRange,
+      status: status.substring(0, 1).toUpperCase() + status.substring(1),
+      icon: icon,
+      iconColor: color,
+      iconBg: bg,
     );
   }
 }
@@ -354,17 +405,6 @@ class _VacationRequest {
   });
 }
 
-const _vacationRequests = [
-  _VacationRequest(title: 'Summer Break 2024', dateRange: 'Aug 15 - Aug 20 (5 Days)',
-      status: 'Pending', icon: Icons.beach_access_rounded,
-      iconColor: Color(0xFFF59E0B), iconBg: Color(0xFFFEF3C7)),
-  _VacationRequest(title: 'Personal Leave', dateRange: 'Apr 02 - Apr 03 (2 Days)',
-      status: 'Approved', icon: Icons.people_rounded,
-      iconColor: Color(0xFF10B981), iconBg: Color(0xFFD1FAE5)),
-  _VacationRequest(title: 'Sick Leave (Retroactive)', dateRange: 'Feb 14 (1 Day)',
-      status: 'Rejected', icon: Icons.medical_services_rounded,
-      iconColor: Color(0xFFEF4444), iconBg: Color(0xFFFEE2E2)),
-  _VacationRequest(title: 'Annual Winter Trip', dateRange: 'Jan 05 - Jan 15 (10 Days)',
-      status: 'Approved', icon: Icons.flight_takeoff_rounded,
-      iconColor: Color(0xFF3B82F6), iconBg: Color(0xFFDEF0FE)),
-];
+// End of helpers
+
+final vacProvider = vacationProvider;

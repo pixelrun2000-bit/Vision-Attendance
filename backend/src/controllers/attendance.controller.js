@@ -7,13 +7,17 @@
 // Also: logs, today's status, admin delete
 // ──────────────────────────────────────────────────────────────────────────
 const { pool } = require("../config/db");
+const { createAndNotify } = require("../utils/notification.helper");
 
 /* ─── helpers ────────────────────────────────────────────────────────────── */
 
-/** Emit real-time attendance update to all WS clients */
-function emitAttendanceUpdate(io, roomId) {
-  if (!io || !roomId) return;
-  io.emit("attendance:update", { room_id: roomId, timestamp: new Date().toISOString() });
+/** Emit real-time attendance update to all WS clients and specific user */
+function emitAttendanceUpdate(io, roomId, userId = null) {
+  if (!io) return;
+  io.emit("attendance:update", { room_id: roomId, user_id: userId, timestamp: new Date().toISOString() });
+  if (userId) {
+    io.to(`user:${userId}`).emit("attendance:refresh");
+  }
 }
 
 /** Validate user GPS against room GPS (radius in metres) */
@@ -158,14 +162,27 @@ const checkinByRoom = async (req, res, next) => {
     }
 
     // ── 1. Find room ──────────────────────────────────────────────────────────
+    // We search by code/token. We relax the org_id check slightly to ensure 
+    // that if a user has the code, they can attempt check-in, 
+    // while still prioritizing their org.
+    const orgId = req.user ? req.user.org_id : null;
     const [rooms] = await pool.execute(
-      "SELECT * FROM rooms WHERE (room_code = ? OR qr_token = ?) AND is_active = 1 LIMIT 1",
+      `SELECT * FROM rooms 
+       WHERE (room_code = ? OR qr_token = ?) 
+         AND is_active = 1`,
       [room_code, room_code]
     );
+
     if (!rooms.length) {
-      return res.status(404).json({ success: false, message: "Room not found for this code" });
+      return res.status(404).json({ success: false, message: "Room not found or inactive" });
     }
+
     const room = rooms[0];
+
+    // Optional: Security check to ensure user belongs to same org as room if room has an org
+    if (room.org_id && orgId && room.org_id !== orgId) {
+       return res.status(403).json({ success: false, message: "This room belongs to another organization" });
+    }
 
     // ── 2. GPS check ──────────────────────────────────────────────────────────
     if (room.latitude && room.longitude && user_lat && user_lng) {
@@ -183,17 +200,41 @@ const checkinByRoom = async (req, res, next) => {
       }
     }
 
-    // ── 3. Duplicate check ────────────────────────────────────────────────────
+    // ── 2. Schedule check ─────────────────────────────────────────────────────
+    if (room.start_time || room.end_time) {
+      const now = new Date();
+      const currentTime = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+      
+      if (room.start_time) {
+        const [h, m, s] = room.start_time.split(':').map(Number);
+        const startTime = h * 3600 + m * 60 + s;
+        if (currentTime < startTime) {
+          return res.status(403).json({ success: false, message: `Room session has not started yet. Starts at ${room.start_time}` });
+        }
+      }
+      
+      if (room.end_time) {
+        const [h, m, s] = room.end_time.split(':').map(Number);
+        const endTime = h * 3600 + m * 60 + s;
+        if (currentTime > endTime) {
+          return res.status(403).json({ success: false, message: `Room session has already ended at ${room.end_time}` });
+        }
+      }
+    }
+
+    // ── 3. Exclusivity check ──────────────────────────────────────────────────
+    // Prevent check-in if user is already checked in to ANY room today
     const [existing] = await pool.execute(
-      `SELECT id FROM attendance
-       WHERE user_id = ? AND room_id = ? AND DATE(checkin_time) = CURDATE() AND checkout_time IS NULL
+      `SELECT a.id, r.name as room_name FROM attendance a
+       LEFT JOIN rooms r ON r.id = a.room_id
+       WHERE a.user_id = ? AND DATE(a.checkin_time) = CURDATE() AND a.checkout_time IS NULL
        LIMIT 1`,
-      [userId, room.id]
+      [userId]
     );
     if (existing.length) {
       return res.status(409).json({
         success: false,
-        message: "Already checked in to this room today",
+        message: `You are already checked in to ${existing[0].room_name || 'another room'}. Please check out first.`,
         attendance_id: existing[0].id,
       });
     }
@@ -225,13 +266,28 @@ const checkinByRoom = async (req, res, next) => {
       [result.insertId]
     );
 
-    // ── 7. Real-time push ─────────────────────────────────────────────────────
+    // ── 7. Real-time push & Notifications ─────────────────────────────────────
     const io = req.app.get("io");
-    emitAttendanceUpdate(io, room.id);
+    emitAttendanceUpdate(io, room.id, userId);
 
     if (is_failed) {
+      await createAndNotify(
+        req.app,
+        userId,
+        "Check-In Failed",
+        `Your check-in attempt at ${room.name} failed: ${failure_reason || 'Unknown error'}.`,
+        "attendance"
+      );
       return res.status(201).json({ success: false, message: "Check-in failed recorded", attendance: record });
     }
+
+    await createAndNotify(
+      req.app,
+      userId,
+      "Check-In Confirmed",
+      `Your check-in at ${room.name} was recorded at ${new Date(record.checkin_time).toLocaleTimeString()}.`,
+      "attendance"
+    );
 
     res.status(201).json({ success: true, attendance: record });
   } catch (err) {
@@ -259,9 +315,53 @@ const checkout = async (req, res, next) => {
     );
 
     const io = req.app.get("io");
-    emitAttendanceUpdate(io, rows[0].room_id);
+    emitAttendanceUpdate(io, rows[0].room_id, userId);
+
+    // Get room name for notification
+    const [rooms] = await pool.execute("SELECT name FROM rooms WHERE id = ?", [rows[0].room_id]);
+    const roomName = rooms[0]?.name || "Unknown Room";
+
+    await createAndNotify(
+      req.app,
+      userId,
+      "Check-Out Confirmed",
+      `You have successfully checked out from ${roomName}.`,
+      "attendance"
+    );
 
     res.json({ success: true, message: "Checked out successfully", checked_out_at: new Date().toISOString() });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/* ─── POST /api/attendance/force-checkout ───────────────────────────────── */
+const forceCheckout = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    // Find latest active check-in
+    const [rows] = await pool.execute(
+      "SELECT id, room_id FROM attendance WHERE user_id = ? AND checkout_time IS NULL ORDER BY checkin_time DESC LIMIT 1",
+      [userId]
+    );
+
+    if (!rows.length) {
+      return res.json({ success: true, message: "No active session to checkout" });
+    }
+
+    const attendanceId = rows[0].id;
+    const roomId = rows[0].room_id;
+
+    await pool.execute(
+      "UPDATE attendance SET checkout_time = NOW(), failure_reason = 'Auto-checkout: Location disabled' WHERE id = ?",
+      [attendanceId]
+    );
+
+    const io = req.app.get("io");
+    emitAttendanceUpdate(io, roomId, userId);
+
+    res.json({ success: true, message: "Forced checkout successful due to location policy" });
   } catch (err) {
     next(err);
   }
@@ -277,4 +377,12 @@ const deleteRecord = async (req, res, next) => {
   }
 };
 
-module.exports = { getAttendance, getMyLogs, getTodayStatus, checkinByRoom, checkout, deleteRecord };
+module.exports = { 
+  getAttendance, 
+  getMyLogs, 
+  getTodayStatus, 
+  checkinByRoom, 
+  checkout, 
+  forceCheckout,
+  deleteRecord 
+};

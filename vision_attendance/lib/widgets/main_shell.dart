@@ -1,42 +1,115 @@
-// lib/widgets/main_shell.dart
+import 'dart:async';
+import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:geolocator/geolocator.dart';
 import '../theme/app_theme.dart';
 import '../navigation/app_router.dart';
 import '../state/user_profile_state.dart';
+import '../services/api_service.dart';
 
-class MainShell extends ConsumerWidget {
+class MainShell extends ConsumerStatefulWidget {
   final Widget child;
-
   const MainShell({super.key, required this.child});
 
+  @override
+  ConsumerState<MainShell> createState() => _MainShellState();
+}
+
+class _MainShellState extends ConsumerState<MainShell> {
+  StreamSubscription<ServiceStatus>? _serviceStatusSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _startLocationMonitor();
+  }
+
+  void _startLocationMonitor() {
+    _serviceStatusSubscription = Geolocator.getServiceStatusStream().listen((ServiceStatus status) {
+      if (status == ServiceStatus.disabled) {
+        _handleGpsDisabled();
+      }
+    });
+  }
+
+  Future<void> _handleGpsDisabled() async {
+    final user = ref.read(userProfileProvider).user;
+    if (user == null) return;
+
+    // Show a warning and force checkout if they were checked in
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Location disabled. Automatic check-out triggered for security.'),
+          backgroundColor: AppColors.error,
+          duration: Duration(seconds: 5),
+        ),
+      );
+      
+      try {
+        final api = ApiService(token: user.token);
+        // Call a dedicated quick-checkout endpoint or the recognize endpoint with a flag
+        // For now, we use the specific checkout logic if the backend supports it
+        // Or simply notify the server of the location breach
+        await api.forceCheckout();
+        ref.read(userProfileProvider.notifier).refreshMe(); // Refresh state
+      } catch (e) {
+        dev.log('Auto-checkout error: $e');
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _serviceStatusSubscription?.cancel();
+    super.dispose();
+  }
+
   int _currentIndex(BuildContext context) {
-    final location = GoRouterState.of(context).uri.toString();
-    if (location.startsWith(AppRoutes.dashboard)) return 0;
-    if (location.startsWith(AppRoutes.attendanceLog)) return 1;
-    if (location.startsWith(AppRoutes.vacationOverview)) return 2;
-    if (location.startsWith(AppRoutes.profile)) return 3;
+    try {
+      final state = GoRouterState.of(context);
+      final location = state.uri.toString();
+      if (location.startsWith(AppRoutes.dashboard)) return 0;
+      if (location.startsWith(AppRoutes.attendanceLog)) return 1;
+      if (location.startsWith(AppRoutes.vacationOverview)) return 2;
+      if (location.startsWith(AppRoutes.profile)) return 3;
+    } catch (_) {}
     return 0;
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final user = ref.watch(userProfileProvider);
+  Widget build(BuildContext context) {
+    final authState = ref.watch(userProfileProvider);
+    final user = authState.user;
+    
     if (user == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (context.mounted) context.go(AppRoutes.login);
-      });
-      return const SizedBox.shrink();
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
+
+    if (user.photoUrl.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        try {
+          final location = GoRouterState.of(context).uri.toString();
+          if (mounted && !location.startsWith(AppRoutes.faceEnrollment)) {
+            final currentUser = ref.read(userProfileProvider).user;
+            if (currentUser != null && currentUser.photoUrl.isEmpty) {
+              context.go(AppRoutes.faceEnrollment);
+            }
+          }
+        } catch (_) {}
+      });
+    }
+
     final index = _currentIndex(context);
 
     return Scaffold(
-      body: child,
-      // ─── FAB for Face Scan (center) ────────────────────────────────────
+      body: widget.child,
       floatingActionButton: _ScanFab(),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      // ─── Bottom Nav Bar ────────────────────────────────────────────────
       bottomNavigationBar: _AppBottomBar(currentIndex: index),
     );
   }

@@ -1,5 +1,6 @@
 // src/controllers/vacations.controller.js
 const { pool } = require("../config/db");
+const { createAndNotify } = require("../utils/notification.helper");
 
 // GET /api/vacations  ← React Dashboard (all requests)
 const getVacations = async (req, res, next) => {
@@ -79,13 +80,17 @@ const createVacation = async (req, res, next) => {
 
     // Notify admins
     const [admins] = await pool.execute("SELECT id FROM users WHERE role IN ('admin','manager') AND is_active=1");
-    if (admins.length) {
-      const notifValues = admins.map(a => [a.id, "New Vacation Request", `${req.user.full_name_en} submitted a ${type} vacation request`, "vacation"]);
-      for (const n of notifValues) {
-        await pool.execute(
-          "INSERT INTO notifications (user_id, title, body, type) VALUES (?, ?, ?, ?)", n
-        );
-      }
+    const io = req.app.get("io");
+    for (const admin of admins) {
+      await createAndNotify(
+        req.app,
+        admin.id,
+        "New Vacation Request",
+        `${req.user.full_name_en} submitted a ${type} vacation request`,
+        "vacation"
+      );
+      // Emit real-time event for the dashboard/admin
+      if (io) io.to(`user:${admin.id}`).emit("vacation:new", { user_id: req.user.id });
     }
 
     const [newReq] = await pool.execute("SELECT * FROM vacation_requests WHERE id = ?", [result.insertId]);
@@ -112,14 +117,21 @@ const reviewVacation = async (req, res, next) => {
     );
 
     // Notify the employee
-    await pool.execute(
-      "INSERT INTO notifications (user_id, title, body, type) VALUES (?, ?, ?, 'vacation')",
-      [
-        existing[0].user_id,
-        `Vacation Request ${status.charAt(0).toUpperCase() + status.slice(1)}`,
-        `Your vacation request from ${existing[0].start_date} to ${existing[0].end_date} has been ${status}.`,
-      ]
+    await createAndNotify(
+      req.app,
+      existing[0].user_id,
+      `Vacation Request ${status.charAt(0).toUpperCase() + status.slice(1)}`,
+      `Your vacation request from ${existing[0].start_date} to ${existing[0].end_date} has been ${status}.`,
+      "vacation"
     );
+
+    // Emit real-time event for the user
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`user:${existing[0].user_id}`).emit("vacation:update", { status });
+      // Also notify admins if any dashboard is open
+      io.emit("vacation:refresh", { id: req.params.id }); 
+    }
 
     const [updated] = await pool.execute("SELECT * FROM vacation_requests WHERE id = ?", [req.params.id]);
     res.json({ success: true, vacation: updated[0] });

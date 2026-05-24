@@ -57,7 +57,7 @@ class DeviceAttendanceCameraGateway implements AttendanceCameraGateway {
 
     final file = await controller.takePicture();
     final size = await file.length();
-    return FaceScanFrame(bytesLength: size);
+    return FaceScanFrame(bytesLength: size, path: file.path);
   }
 
   @override

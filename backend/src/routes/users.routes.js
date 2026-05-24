@@ -12,7 +12,7 @@ router.post("/me/profile-photo",       upload.single("image"), ctrl.uploadMyProf
 router.post("/me/location",            ctrl.upsertMyLocation);
 router.get("/:id",                     requireManagerOrAdmin, ctrl.getUserById);
 router.get("/:id/attendance-summary",  requireManagerOrAdmin, ctrl.getUserAttendanceSummary);
-router.post("/",                       requireManagerOrAdmin, ctrl.createUser);  // admin+manager
+router.post("/",                       requireManagerOrAdmin, upload.single("image"), ctrl.createUser);  // admin+manager
 router.put("/:id",                     requireSuperAdmin,     ctrl.updateUser);  // admin only
 router.delete("/:id",                  requireSuperAdmin,     ctrl.deleteUser);  // admin only
 

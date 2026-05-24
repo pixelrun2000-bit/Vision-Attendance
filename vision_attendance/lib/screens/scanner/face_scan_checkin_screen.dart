@@ -1,19 +1,20 @@
+import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../navigation/app_router.dart';
 import '../../services/attendance_camera_gateway.dart';
-import '../../services/face_match_evaluator.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../services/api_service.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../state/user_profile_state.dart';
 
 enum AttendanceScanMode { checkin, checkout }
 
 class FaceScanCheckinScreen extends StatelessWidget {
   final AttendanceCameraGateway? gateway;
-  final FaceMatchEvaluator evaluator;
   final String? successRouteOverride;
   final String? failureRouteOverride;
   final Map<String, dynamic>? roomData;
@@ -21,7 +22,6 @@ class FaceScanCheckinScreen extends StatelessWidget {
   const FaceScanCheckinScreen({
     super.key,
     this.gateway,
-    this.evaluator = const FaceMatchEvaluator(),
     this.successRouteOverride,
     this.failureRouteOverride,
     this.roomData,
@@ -32,7 +32,6 @@ class FaceScanCheckinScreen extends StatelessWidget {
     return _FaceAttendanceScanScreen(
       mode: AttendanceScanMode.checkin,
       gateway: gateway,
-      evaluator: evaluator,
       successRouteOverride: successRouteOverride,
       failureRouteOverride: failureRouteOverride,
       roomData: roomData,
@@ -42,14 +41,12 @@ class FaceScanCheckinScreen extends StatelessWidget {
 
 class CheckoutFaceScanScreen extends StatelessWidget {
   final AttendanceCameraGateway? gateway;
-  final FaceMatchEvaluator evaluator;
   final String? successRouteOverride;
   final String? failureRouteOverride;
 
   const CheckoutFaceScanScreen({
     super.key,
     this.gateway,
-    this.evaluator = const FaceMatchEvaluator(),
     this.successRouteOverride,
     this.failureRouteOverride,
   });
@@ -59,17 +56,15 @@ class CheckoutFaceScanScreen extends StatelessWidget {
     return _FaceAttendanceScanScreen(
       mode: AttendanceScanMode.checkout,
       gateway: gateway,
-      evaluator: evaluator,
       successRouteOverride: successRouteOverride,
       failureRouteOverride: failureRouteOverride,
     );
   }
 }
 
-class _FaceAttendanceScanScreen extends StatefulWidget {
+class _FaceAttendanceScanScreen extends ConsumerStatefulWidget {
   final AttendanceScanMode mode;
   final AttendanceCameraGateway? gateway;
-  final FaceMatchEvaluator evaluator;
   final String? successRouteOverride;
   final String? failureRouteOverride;
   final Map<String, dynamic>? roomData;
@@ -77,17 +72,16 @@ class _FaceAttendanceScanScreen extends StatefulWidget {
   const _FaceAttendanceScanScreen({
     required this.mode,
     this.gateway,
-    required this.evaluator,
     this.successRouteOverride,
     this.failureRouteOverride,
     this.roomData,
   });
 
   @override
-  State<_FaceAttendanceScanScreen> createState() => _FaceAttendanceScanScreenState();
+  ConsumerState<_FaceAttendanceScanScreen> createState() => _FaceAttendanceScanScreenState();
 }
 
-class _FaceAttendanceScanScreenState extends State<_FaceAttendanceScanScreen> {
+class _FaceAttendanceScanScreenState extends ConsumerState<_FaceAttendanceScanScreen> {
   late final AttendanceCameraGateway _gateway;
   bool _isInitializing = true;
   bool _isProcessing = false;
@@ -124,71 +118,82 @@ class _FaceAttendanceScanScreenState extends State<_FaceAttendanceScanScreen> {
 
     setState(() {
       _isProcessing = true;
-      _status = 'Capturing face frame...';
+      _status = 'Capturing face...';
     });
 
     try {
       final frame = await _gateway.captureFrame();
       if (!mounted) return;
 
-      setState(() => _status = 'Verifying identity...');
+      setState(() => _status = 'AI Verifying identity...');
 
-      final result = widget.evaluator.evaluate(frame);
-      await Future<void>.delayed(const Duration(milliseconds: 400));
+      // ── Get Token and API Service ─────────────────────────────────────────
+      final token = ref.read(userProfileProvider).user?.token ?? '';
+      if (token.isEmpty) {
+        setState(() {
+          _isProcessing = false;
+          _status = 'Session expired. Please log in again.';
+        });
+        return;
+      }
+
+      final api = ApiService(token: token);
+      final pos = await Geolocator.getCurrentPosition().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => Position(
+          latitude: 0, longitude: 0, timestamp: DateTime.now(),
+          accuracy: 0, altitude: 0, heading: 0, speed: 0, speedAccuracy: 0,
+          altitudeAccuracy: 0, headingAccuracy: 0,
+        ),
+      );
+
+      // ── Call AI RECOGNITION ────────────────────────────────────────────────
+      final result = await api.recognizeFace(
+        frame.path,
+        roomId: widget.roomData?['id'],
+        lat: pos.latitude,
+        lng: pos.longitude,
+      );
+
       if (!mounted) return;
 
-      final successRoute = widget.successRouteOverride ??
-          (_isCheckin ? AppRoutes.checkinSuccess : AppRoutes.checkoutSummary);
-      final failureRoute = widget.failureRouteOverride ?? AppRoutes.checkinFailure;
-
-      if (result.isMatch) {
-        if (_isCheckin && widget.roomData != null) {
-          setState(() => _status = 'Registering Attendance...');
-          try {
-            final prefs = await SharedPreferences.getInstance();
-            final token = prefs.getString('auth_token') ?? '';
-            final api = ApiService(token: token);
-            final pos = await Geolocator.getCurrentPosition();
-            
-            await api.checkinByRoom(
-              roomCode: widget.roomData!['room_code'],
-              latitude: pos.latitude,
-              longitude: pos.longitude,
-            );
-          } catch (e) {
-            setState(() {
-              _isProcessing = false;
-              _status = 'Check-in failed on server. Try again.';
-            });
-            return;
-          }
-        }
+      if (result['success'] == true) {
+        setState(() => _status = 'Verified Successfully!');
+        await Future.delayed(const Duration(milliseconds: 500));
+        
+        final successRoute = widget.successRouteOverride ??
+            (_isCheckin ? AppRoutes.checkinSuccess : AppRoutes.checkoutSummary);
         context.go(successRoute);
       } else {
-        if (_isCheckin && widget.roomData != null) {
-          try {
-            final prefs = await SharedPreferences.getInstance();
-            final token = prefs.getString('auth_token') ?? '';
-            final api = ApiService(token: token);
-            final pos = await Geolocator.getCurrentPosition();
-            
-            await api.checkinByRoom(
-              roomCode: widget.roomData!['room_code'],
-              latitude: pos.latitude,
-              longitude: pos.longitude,
-              isFailed: true,
-              failureReason: 'Face not recognized, or wearing glasses',
-            );
-          } catch (_) {}
+        // Recognition failed or spoofing detected
+        if (result['message']?.toString().contains('Security Alert') == true) {
+          setState(() => _status = '🚫 SECURITY ALERT DETECTED');
+        } else {
+          setState(() {
+            _isProcessing = false;
+            _status = result['message'] ?? 'Face not recognized';
+          });
         }
-        context.go(failureRoute);
+        
+        await Future.delayed(const Duration(milliseconds: 1500));
+        if (mounted) {
+          context.go(AppRoutes.checkinFailure, extra: result['message'] ?? 'Identity verification failed');
+        }
       }
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
+      final errorMsg = e.toString().replaceFirst('Exception: ', '');
       setState(() {
         _isProcessing = false;
-        _status = 'Capture failed. Please try again.';
+        _status = errorMsg;
       });
+      dev.log('Recognition Error: $e', name: 'FaceScan');
+      
+      // Auto-navigate to failure screen after a brief delay
+      await Future.delayed(const Duration(milliseconds: 1200));
+      if (mounted) {
+        context.go(AppRoutes.checkinFailure, extra: errorMsg);
+      }
     }
   }
 

@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS users (
   face_person_id VARCHAR(100) NULL,
   is_face_enrolled TINYINT(1) NOT NULL DEFAULT 0,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
+  subscription_plan ENUM('Free','Basic','Standard','Premium') NOT NULL DEFAULT 'Free',
+  org_id INT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

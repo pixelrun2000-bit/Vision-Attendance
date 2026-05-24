@@ -41,6 +41,7 @@ class _ProfileSettingsScreenState
   // ── edit mode ───────────────────────────────────────────────────────────────
   bool _editMode = false;
   bool _saving   = false;
+  bool _loggingOut = false;
   late final TextEditingController _nameArCtrl;
   late final TextEditingController _nameEnCtrl;
   late final TextEditingController _phoneCtrl;
@@ -59,7 +60,7 @@ class _ProfileSettingsScreenState
   @override
   void initState() {
     super.initState();
-    final profile = ref.read(userProfileProvider);
+    final profile = ref.read(userProfileProvider).user;
     _nameArCtrl = TextEditingController(text: profile?.fullNameAr ?? '');
     _nameEnCtrl = TextEditingController(text: profile?.fullNameEn ?? '');
     _phoneCtrl  = TextEditingController(text: profile?.phoneE164  ?? '');
@@ -70,7 +71,7 @@ class _ProfileSettingsScreenState
 
     // Build ApiService with real token after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final tok = ref.read(userProfileProvider)?.token ?? '';
+      final tok = ref.read(userProfileProvider).user?.token ?? '';
       _api = ApiService(token: tok);
       _loadStats();
       _sendGps();
@@ -173,7 +174,7 @@ class _ProfileSettingsScreenState
   // ── UI ────────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final profile   = ref.watch(userProfileProvider);
+    final profile   = ref.watch(userProfileProvider).user;
     final isDark    = ref.watch(themeModeProvider) == ThemeMode.dark;
     final name      = profile?.fullNameEn ?? 'Your Name';
     final role      = profile?.role ?? 'employee';
@@ -195,7 +196,7 @@ class _ProfileSettingsScreenState
               backgroundColor: AppColors.primary,
               leading: IconButton(
                 icon: const Icon(Icons.arrow_back_ios_rounded, color: Colors.white),
-                onPressed: () => context.pop(),
+                onPressed: () => context.go(AppRoutes.dashboard),
               ),
               actions: [
                 IconButton(
@@ -231,8 +232,8 @@ class _ProfileSettingsScreenState
                                   border: Border.all(color: Colors.white.withOpacity(0.5), width: 3),
                                 ),
                                 child: ClipOval(
-                                  child: (profile?.photoUrl.isNotEmpty == true)
-                                      ? Image.network(profile!.photoUrl, fit: BoxFit.cover,
+                                  child: (profile?.photoUrl != null && profile?.photoUrl != '')
+                                      ? Image.network(profile?.photoUrl ?? '', fit: BoxFit.cover,
                                           errorBuilder: (_, __, ___) => _avatarFallback(name))
                                       : _avatarFallback(name),
                                 ),
@@ -452,7 +453,7 @@ class _ProfileSettingsScreenState
                   // ══════════════════════════════════════════════
                   // SIGN OUT BUTTON
                   // ══════════════════════════════════════════════
-                  _SignOutButton(onTap: () => _showLogoutDialog(context)),
+                  _SignOutButton(onTap: _performSignOut),
                   const SizedBox(height: 12),
 
                   Center(
@@ -481,36 +482,28 @@ class _ProfileSettingsScreenState
     ),
   );
 
+  Future<void> _performSignOut() async {
+    setState(() => _loggingOut = true);
+    try {
+      // Clear state and storage
+      await ref.read(userProfileProvider.notifier).signOut();
+      
+      // Force navigate to login immediately
+      if (mounted) {
+        context.go(AppRoutes.login);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loggingOut = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Logout failed: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    }
+  }
+
   void _showLogoutDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Sign Out?', style: AppTextStyles.headlineMedium),
-        content: const Text(
-          'You will need to sign in again to access your attendance data.',
-          style: AppTextStyles.bodyMedium,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await ref.read(userProfileProvider.notifier).signOut();
-              if (context.mounted) context.go(AppRoutes.login);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.error,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            child: const Text('Sign Out'),
-          ),
-        ],
-      ),
-    );
+    // Deprecated in favor of direct logout
   }
 }
 

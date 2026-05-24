@@ -107,8 +107,8 @@ const paymentWebhook = async (req, res, next) => {
 
     const { transaction_id, status, gateway_response_data } = req.body;
 
-    if (!transaction_id || status !== "success") {
-      return res.status(400).send("Ignored");
+    if (!transaction_id) {
+      return res.status(400).send("Transaction ID missing");
     }
 
     // Find the payment record
@@ -124,8 +124,16 @@ const paymentWebhook = async (req, res, next) => {
     const payment = payments[0];
 
     // Prevent double processing if webhook is sent multiple times
-    if (payment.status === 'completed') {
+    if (payment.status === 'completed' || payment.status === 'failed') {
       return res.status(200).send("Already processed");
+    }
+
+    if (status !== "success") {
+      await pool.execute(
+        "UPDATE payments SET status = 'failed', gateway_response = ? WHERE id = ?",
+        [JSON.stringify(gateway_response_data || {}), payment.id]
+      );
+      return res.status(200).send("Payment failed status recorded");
     }
 
     // ── Process Successful Payment ──────────────────────────────────────────

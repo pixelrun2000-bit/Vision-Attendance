@@ -72,10 +72,12 @@ class ApiClient {
     String path, {
     required String fieldName,
     required String filePath,
+    Map<String, String>? fields,
     String? token,
   }) async {
     final request = http.MultipartRequest('POST', _uri(path));
     if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    if (fields != null) request.fields.addAll(fields);
     request.files.add(await http.MultipartFile.fromPath(fieldName, filePath));
 
     final streamed = await request

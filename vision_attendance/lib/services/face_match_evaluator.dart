@@ -1,7 +1,8 @@
 class FaceScanFrame {
   final int bytesLength;
+  final String path;
 
-  const FaceScanFrame({required this.bytesLength});
+  const FaceScanFrame({required this.bytesLength, required this.path});
 }
 
 class FaceMatchResult {

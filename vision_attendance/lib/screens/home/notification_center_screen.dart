@@ -1,17 +1,20 @@
 // lib/screens/home/notification_center_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import '../../theme/app_theme.dart';
+import '../../state/notification_state.dart';
 
-class NotificationCenterScreen extends StatefulWidget {
+class NotificationCenterScreen extends ConsumerStatefulWidget {
   const NotificationCenterScreen({super.key});
 
   @override
-  State<NotificationCenterScreen> createState() =>
+  ConsumerState<NotificationCenterScreen> createState() =>
       _NotificationCenterScreenState();
 }
 
-class _NotificationCenterScreenState extends State<NotificationCenterScreen>
+class _NotificationCenterScreenState extends ConsumerState<NotificationCenterScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
@@ -19,6 +22,10 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    // Refresh notifications when entering the screen
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(notificationProvider.notifier).fetchNotifications();
+    });
   }
 
   @override
@@ -29,6 +36,9 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
 
   @override
   Widget build(BuildContext context) {
+    final state = ref.watch(notificationProvider);
+    final notifier = ref.read(notificationProvider.notifier);
+
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -37,19 +47,14 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
         ),
         title: const Text('Notification Center'),
         actions: [
-          TextButton(
-            onPressed: () {
-              setState(() {
-                for (var n in _notifications) {
-                  n.isRead = true;
-                }
-              });
-            },
-            child: const Text('Mark All Read',
-                style: TextStyle(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w600)),
-          ),
+          if (state.unreadCount > 0)
+            TextButton(
+              onPressed: () => notifier.markAllRead(),
+              child: const Text('Mark All Read',
+                  style: TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w600)),
+            ),
         ],
         bottom: TabBar(
           controller: _tabController,
@@ -63,31 +68,33 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _NotificationList(notifications: _notifications),
-          _NotificationList(
-              notifications: _notifications
-                  .where((n) => n.type == 'attendance')
-                  .toList()),
-          _NotificationList(
-              notifications: _notifications
-                  .where((n) => n.type == 'leave')
-                  .toList()),
-        ],
-      ),
+      body: state.isLoading && state.notifications.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                _NotificationList(notifications: state.notifications),
+                _NotificationList(
+                    notifications: state.notifications
+                        .where((n) => n.type == 'attendance')
+                        .toList()),
+                _NotificationList(
+                    notifications: state.notifications
+                        .where((n) => n.type == 'vacation' || n.type == 'leave')
+                        .toList()),
+              ],
+            ),
     );
   }
 }
 
-class _NotificationList extends StatelessWidget {
-  final List<_Notification> notifications;
+class _NotificationList extends ConsumerWidget {
+  final List<NotificationItem> notifications;
 
   const _NotificationList({required this.notifications});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (notifications.isEmpty) {
       return const Center(
         child: Column(
@@ -104,151 +111,115 @@ class _NotificationList extends StatelessWidget {
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: notifications.length,
-      separatorBuilder: (_, _) =>
-          const Divider(height: 1, color: AppColors.border),
-      itemBuilder: (_, i) => _NotificationCard(notification: notifications[i]),
-    );
-  }
-}
-
-class _NotificationCard extends StatelessWidget {
-  final _Notification notification;
-
-  const _NotificationCard({required this.notification});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: notification.isRead
-          ? Colors.transparent
-          : AppColors.primary.withOpacity(0.03),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: notification.color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(notification.icon,
-                color: notification.color, size: 22),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(notification.title,
-                          style: AppTextStyles.titleLarge),
-                    ),
-                    if (!notification.isRead)
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: AppColors.primary,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Text(notification.body, style: AppTextStyles.bodyMedium),
-                const SizedBox(height: 6),
-                Text(notification.time,
-                    style: AppTextStyles.bodyMedium
-                        .copyWith(fontSize: 11)),
-              ],
-            ),
-          ),
-        ],
+    return RefreshIndicator(
+      onRefresh: () => ref.read(notificationProvider.notifier).fetchNotifications(),
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: notifications.length,
+        separatorBuilder: (_, _) =>
+            const Divider(height: 1, color: AppColors.border),
+        itemBuilder: (_, i) => _NotificationCard(notification: notifications[i]),
       ),
     );
   }
 }
 
-class _Notification {
-  final String title;
-  final String body;
-  final String time;
-  final String type;
-  final IconData icon;
-  final Color color;
-  bool isRead;
+class _NotificationCard extends ConsumerWidget {
+  final NotificationItem notification;
 
-  _Notification({
-    required this.title,
-    required this.body,
-    required this.time,
-    required this.type,
-    required this.icon,
-    required this.color,
-    this.isRead = false,
-  });
+  const _NotificationCard({required this.notification});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final IconData icon;
+    final Color color;
+
+    switch (notification.type) {
+      case 'attendance':
+        icon = notification.title.contains('Failed') ? Icons.error_outline : Icons.login_rounded;
+        color = notification.title.contains('Failed') ? AppColors.error : AppColors.success;
+        break;
+      case 'vacation':
+      case 'leave':
+        icon = Icons.beach_access_rounded;
+        color = AppColors.warning;
+        break;
+      case 'ai':
+        icon = Icons.auto_awesome_rounded;
+        color = AppColors.info;
+        break;
+      default:
+        icon = Icons.notifications_rounded;
+        color = AppColors.primary;
+    }
+
+    return InkWell(
+      onTap: () {
+        if (!notification.isRead) {
+          ref.read(notificationProvider.notifier).markRead(notification.id);
+        }
+      },
+      child: Container(
+        color: notification.isRead
+            ? Colors.transparent
+            : AppColors.primary.withOpacity(0.03),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: color, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(notification.title,
+                            style: AppTextStyles.titleLarge),
+                      ),
+                      if (!notification.isRead)
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(notification.body, style: AppTextStyles.bodyMedium),
+                  const SizedBox(height: 6),
+                  Text(
+                    _getTimeAgo(notification.createdAt),
+                    style: AppTextStyles.bodyMedium.copyWith(fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getTimeAgo(DateTime dateTime) {
+    final diff = DateTime.now().difference(dateTime);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return DateFormat('MMM d, yyyy').format(dateTime);
+  }
 }
-
-final _notifications = [
-  _Notification(
-    title: 'Check-In Confirmed',
-    body: 'Your check-in at HQ North Wing was recorded at 08:42 AM.',
-    time: '2 mins ago',
-    type: 'attendance',
-    icon: Icons.login_rounded,
-    color: AppColors.success,
-    isRead: false,
-  ),
-  _Notification(
-    title: 'Leave Request Update',
-    body: 'Your "Summer Break 2024" request is pending manager approval.',
-    time: '1 hour ago',
-    type: 'leave',
-    icon: Icons.beach_access_rounded,
-    color: AppColors.warning,
-    isRead: false,
-  ),
-  _Notification(
-    title: 'Overtime Alert',
-    body: 'You worked 12h 15m on Tuesday — 4h 15m overtime logged.',
-    time: 'Yesterday',
-    type: 'attendance',
-    icon: Icons.access_time_rounded,
-    color: AppColors.primary,
-    isRead: true,
-  ),
-  _Notification(
-    title: 'Leave Approved',
-    body: 'Personal Leave (Apr 02–03) has been approved by HR.',
-    time: '2 days ago',
-    type: 'leave',
-    icon: Icons.check_circle_rounded,
-    color: AppColors.success,
-    isRead: true,
-  ),
-  _Notification(
-    title: 'AI Insight',
-    body: 'Your attendance rate this month is 98% — top 5% in your team!',
-    time: '3 days ago',
-    type: 'ai',
-    icon: Icons.auto_awesome_rounded,
-    color: AppColors.info,
-    isRead: true,
-  ),
-  _Notification(
-    title: 'Reminder: Check-Out',
-    body: 'It\'s 6:00 PM — don\'t forget to check out before leaving.',
-    time: '4 days ago',
-    type: 'attendance',
-    icon: Icons.logout_rounded,
-    color: AppColors.error,
-    isRead: true,
-  ),
-];

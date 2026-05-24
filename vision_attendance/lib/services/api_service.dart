@@ -11,7 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// Riverpod provider so screens can easily read the service
 final apiServiceProvider = Provider<ApiService>((ref) {
   // Grab token from the user state if available
-  final token = ref.watch(userProfileProvider)?.token ?? '';
+  final token = ref.watch(userProfileProvider).user?.token ?? '';
   return ApiService(token: token);
 });
 
@@ -77,8 +77,8 @@ class ApiService {
   }) =>
       _client.postJson('/api/attendance/checkin-by-room', token: token, body: {
         'room_code': roomCode,
-        'latitude':  latitude,
-        'longitude': longitude,
+        'user_lat':  latitude,
+        'user_lng': longitude,
         if (isFailed) 'is_failed': true,
         if (failureReason != null) 'failure_reason': failureReason,
       });
@@ -86,6 +86,10 @@ class ApiService {
   /// POST /api/attendance/checkout
   Future<Map<String, dynamic>> checkout() =>
       _client.postJson('/api/attendance/checkout', token: token, body: {});
+
+  /// GET /api/attendance/force-checkout
+  Future<Map<String, dynamic>> forceCheckout() =>
+      _client.getJson('/api/attendance/force-checkout', token: token);
 
   // ── ROOMS ─────────────────────────────────────────────────────────────────
 
@@ -95,10 +99,56 @@ class ApiService {
   Future<Map<String, dynamic>> getRoomByCode(String code) =>
       _client.getJson('/api/rooms/by-code/$code', token: token);
 
+  Future<Map<String, dynamic>> getRoomLive(int roomId) =>
+      _client.getJson('/api/rooms/$roomId/live', token: token);
+
   // ── PROFILE ───────────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> getUserAttendanceSummary(int userId, {String? month}) {
     final q = month != null ? '?month=$month' : '';
     return _client.getJson('/api/users/$userId/attendance-summary$q', token: token);
   }
+
+  // ── VACATIONS ─────────────────────────────────────────────────────────────
+  
+  Future<Map<String, dynamic>> getMyVacations() =>
+      _client.getJson('/api/vacations/my', token: token);
+
+  // ── AI / FACE ─────────────────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>> enrollSelf(String imagePath) =>
+      _client.postMultipart('/api/ai/enroll-self',
+          fieldName: 'image', filePath: imagePath, token: token);
+
+  Future<Map<String, dynamic>> checkQuality(String imagePath) =>
+      _client.postMultipart('/api/ai/quality',
+          fieldName: 'image', filePath: imagePath, token: token);
+
+  Future<Map<String, dynamic>> recognizeFace(String imagePath, {
+    int? roomId,
+    double? lat,
+    double? lng,
+  }) =>
+      _client.postMultipart(
+        '/api/ai/recognize',
+        fieldName: 'image',
+        filePath: imagePath,
+        token: token,
+        fields: {
+          if (roomId != null) 'room_id': roomId.toString(),
+          if (lat != null) 'lat': lat.toString(),
+          if (lng != null) 'lng': lng.toString(),
+        },
+      );
+
+  // ── NOTIFICATIONS ─────────────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>> getNotifications() =>
+      _client.getJson('/api/notifications', token: token);
+
+  Future<Map<String, dynamic>> markNotificationRead(int id) =>
+      _client.putJson('/api/notifications/$id/read', token: token, body: {});
+
+  Future<Map<String, dynamic>> markAllNotificationsRead() =>
+      _client.putJson('/api/notifications/read-all', token: token, body: {});
 }

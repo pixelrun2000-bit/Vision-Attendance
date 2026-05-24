@@ -15,11 +15,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future<void>.delayed(const Duration(milliseconds: 1300), () async {
-      await ref.read(userProfileProvider.notifier).refreshMe().catchError((_) {});
-      if (!mounted) return;
-      final user = ref.read(userProfileProvider);
-      context.go(user == null ? AppRoutes.login : AppRoutes.dashboard);
+    Future<void>.delayed(const Duration(milliseconds: 2000), () {
+      if (mounted) {
+        ref.read(userProfileProvider.notifier).dismissSplash();
+      }
     });
   }
 

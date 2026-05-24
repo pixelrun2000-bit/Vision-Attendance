@@ -1,15 +1,18 @@
 // lib/screens/home/attendance_log_screen.dart
 // â”€â”€â”€ Attendance Logs â€” Real Data + Face ID + Nearby Rooms â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import 'dart:math';
+import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:vision_attendance/navigation/app_router.dart';
 import '../../state/user_profile_state.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
+import '../../state/attendance_refresh_state.dart';
 
 class AttendanceLogScreen extends ConsumerStatefulWidget {
   const AttendanceLogScreen({super.key});
@@ -91,7 +94,7 @@ class _AttendanceLogScreenState extends ConsumerState<AttendanceLogScreen>
   Future<void> _loadLogs() async {
     setState(() => _loadingLogs = true);
     try {
-      final profile = ref.read(userProfileProvider);
+      final profile = ref.read(userProfileProvider).user;
       final api     = ApiService(token: profile?.token ?? '');
 
       final todayRes = await api.getTodayStatus();
@@ -125,7 +128,7 @@ class _AttendanceLogScreenState extends ConsumerState<AttendanceLogScreen>
       );
 
       // Fetch all rooms
-      final profile = ref.read(userProfileProvider);
+      final profile = ref.read(userProfileProvider).user;
       final api     = ApiService(token: profile?.token ?? '');
       final data    = await api.getRooms();
       final rooms   = List<Map<String, dynamic>>.from(data['rooms'] ?? []);
@@ -134,7 +137,7 @@ class _AttendanceLogScreenState extends ConsumerState<AttendanceLogScreen>
       final withDist = rooms.where((r) =>
         r['latitude'] != null && r['longitude'] != null).map((r) {
           final dist = _haversine(
-            _pos!.latitude, _pos!.longitude,
+            _pos?.latitude ?? 0.0, _pos?.longitude ?? 0.0,
             (r['latitude'] as num).toDouble(),
             (r['longitude'] as num).toDouble(),
           );
@@ -183,6 +186,14 @@ class _AttendanceLogScreenState extends ConsumerState<AttendanceLogScreen>
   // â”€â”€ UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   @override
   Widget build(BuildContext context) {
+    // Listen for real-time refresh triggers
+    ref.listen<int>(attendanceRefreshProvider, (prev, next) {
+      if (next > (prev ?? 0)) {
+        dev.log('[AttendanceLogScreen] Real-time refresh triggered', name: 'AttendanceLogScreen');
+        _loadLogs();
+      }
+    });
+
     if (_loadingBio) return _buildBioLoading();
     if (!_biometricPassed) return _buildBioFailed();
     return _buildMain();
@@ -196,7 +207,7 @@ class _AttendanceLogScreenState extends ConsumerState<AttendanceLogScreen>
         Container(
           width: 80, height: 80,
           decoration: BoxDecoration(
-            color: AppColors.primary.withValues(alpha: 0.1),
+            color: AppColors.primary.withOpacity(0.1),
             shape: BoxShape.circle,
           ),
           child: const Icon(Icons.face_unlock_outlined, size: 40, color: AppColors.primary),
@@ -307,7 +318,7 @@ class _AttendanceLogScreenState extends ConsumerState<AttendanceLogScreen>
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.08),
+                      color: AppColors.primary.withOpacity(0.08),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -397,7 +408,7 @@ class _TodayCard extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [BoxShadow(
-          color: AppColors.primary.withValues(alpha: 0.3),
+          color: AppColors.primary.withOpacity(0.3),
           blurRadius: 16, offset: const Offset(0, 6),
         )],
       ),
@@ -450,9 +461,9 @@ class _StatusPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.15),
+        color: Colors.white.withOpacity(0.15),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
+        border: Border.all(color: color.withOpacity(0.5)),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Container(width: 6, height: 6,
@@ -527,20 +538,24 @@ class _SectionHeader extends StatelessWidget {
   ]);
 }
 
-class _RoomChip extends StatelessWidget {
+class _RoomChip extends ConsumerWidget {
   final Map<String, dynamic> room;
   const _RoomChip({required this.room});
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final dist = room['_dist'] as double;
     final label = dist < 1000
       ? '${dist.toStringAsFixed(0)} m'
       : '${(dist / 1000).toStringAsFixed(1)} km';
     final isNear = dist <= 300;
+    final userRole = ref.watch(userProfileProvider).user?.role;
+
     return GestureDetector(
       onTap: () {
-        if (isNear) {
-          context.push('/face-scan-checkin', extra: room);
+        if (userRole == 'admin' || userRole == 'manager') {
+          context.push(AppRoutes.roomLiveStatus, extra: room);
+        } else if (isNear) {
+          context.push(AppRoutes.faceScanCheckin, extra: room);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('You must be within 300 meters to check in.'), backgroundColor: AppColors.error),
@@ -551,10 +566,10 @@ class _RoomChip extends StatelessWidget {
         width: 160,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isNear ? AppColors.primary.withValues(alpha: 0.07) : AppColors.surface,
+          color: isNear ? AppColors.primary.withOpacity(0.07) : AppColors.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isNear ? AppColors.primary.withValues(alpha: 0.4) : AppColors.border,
+            color: isNear ? AppColors.primary.withOpacity(0.4) : AppColors.border,
             width: isNear ? 1.5 : 1,
           ),
         ),
@@ -566,7 +581,7 @@ class _RoomChip extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
             decoration: BoxDecoration(
-              color: isNear ? AppColors.success.withValues(alpha: 0.1) : AppColors.border,
+              color: isNear ? AppColors.success.withOpacity(0.1) : AppColors.border,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(label, style: TextStyle(
@@ -623,7 +638,7 @@ class _LogCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
               decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
+                color: color.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(status.toUpperCase(), style: TextStyle(

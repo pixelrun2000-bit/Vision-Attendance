@@ -321,9 +321,16 @@ class _IdentityVerificationScreenState
   void _proceed() async {
     if (_selectedMethod == null) return;
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 800));
+    await Future.delayed(const Duration(milliseconds: 400));
     setState(() => _isLoading = false);
-    if (mounted) context.push(AppRoutes.permissionsSetup);
+    
+    if (mounted) {
+      if (_selectedMethod == 'face') {
+        context.push(AppRoutes.faceEnrollment);
+      } else {
+        context.push(AppRoutes.permissionsSetup);
+      }
+    }
   }
 
   @override

@@ -39,7 +39,6 @@ function emitRoomsUpdate(io) {
 const getRooms = async (req, res, next) => {
   try {
     const orgId = req.user ? req.user.org_id : null;
-    const orgFilter = orgId ? `AND r.org_id = ${orgId}` : "AND r.org_id IS NULL";
     const [rooms] = await pool.execute(
       `SELECT r.id, r.name, r.description, r.capacity, r.room_code, r.qr_token,
               r.latitude, r.longitude, r.created_at,
@@ -48,9 +47,10 @@ const getRooms = async (req, res, next) => {
        LEFT JOIN attendance a
          ON a.room_id = r.id AND DATE(a.checkin_time) = CURDATE()
             AND a.checkout_time IS NULL
-       WHERE r.is_active = 1 ${orgFilter}
+       WHERE r.is_active = 1 AND (r.org_id = ? OR (? IS NULL AND r.org_id IS NULL))
        GROUP BY r.id
-       ORDER BY r.name ASC`
+       ORDER BY r.name ASC`,
+      [orgId, orgId]
     );
     res.json({ success: true, rooms });
   } catch (err) {
@@ -62,16 +62,15 @@ const getRooms = async (req, res, next) => {
 const getRoomById = async (req, res, next) => {
   try {
     const orgId = req.user ? req.user.org_id : null;
-    const orgFilter = orgId ? `AND r.org_id = ${orgId}` : "AND r.org_id IS NULL";
     const [rows] = await pool.execute(
       `SELECT r.*, COUNT(a.id) AS current_occupancy
        FROM rooms r
        LEFT JOIN attendance a
          ON a.room_id = r.id AND DATE(a.checkin_time) = CURDATE()
             AND a.checkout_time IS NULL
-       WHERE r.id = ? AND r.is_active = 1 ${orgFilter}
+       WHERE r.id = ? AND r.is_active = 1 AND (r.org_id = ? OR (? IS NULL AND r.org_id IS NULL))
        GROUP BY r.id`,
-      [req.params.id]
+      [req.params.id, orgId, orgId]
     );
     if (!rows.length)
       return res.status(404).json({ success: false, message: "Room not found" });
@@ -87,16 +86,16 @@ const getRoomByCode = async (req, res, next) => {
   try {
     // Note: Mobile might not have req.user depending on authentication
     const orgId = req.user ? req.user.org_id : null;
-    const orgFilter = orgId ? `AND r.org_id = ${orgId}` : "AND r.org_id IS NULL";
     const [rows] = await pool.execute(
       `SELECT r.*, COUNT(a.id) AS current_occupancy
        FROM rooms r
        LEFT JOIN attendance a
          ON a.room_id = r.id AND DATE(a.checkin_time) = CURDATE()
             AND a.checkout_time IS NULL
-       WHERE (r.room_code = ? OR r.qr_token = ?) AND r.is_active = 1 ${orgFilter}
+       WHERE (r.room_code = ? OR r.qr_token = ?) AND r.is_active = 1 
+         AND (r.org_id = ? OR (? IS NULL AND r.org_id IS NULL))
        GROUP BY r.id`,
-      [req.params.code, req.params.code]
+      [req.params.code, req.params.code, orgId, orgId]
     );
     if (!rows.length)
       return res.status(404).json({ success: false, message: "Room not found for this code" });
@@ -110,17 +109,20 @@ const getRoomByCode = async (req, res, next) => {
 /** Real-time attendees list currently inside this room today */
 const getRoomLive = async (req, res, next) => {
   try {
+    const orgId = req.user ? req.user.org_id : null;
     const [attendees] = await pool.execute(
       `SELECT a.id AS attendance_id, u.id AS user_id,
               u.full_name_en, u.full_name_ar, u.employee_id,
               u.photo_url, a.checkin_time, a.status
        FROM attendance a
        JOIN users u ON u.id = a.user_id
+       JOIN rooms r ON r.id = a.room_id
        WHERE a.room_id = ?
          AND DATE(a.checkin_time) = CURDATE()
          AND a.checkout_time IS NULL
+         AND (r.org_id = ? OR (? IS NULL AND r.org_id IS NULL))
        ORDER BY a.checkin_time DESC`,
-      [req.params.id]
+      [req.params.id, orgId, orgId]
     );
     res.json({
       success: true,
@@ -168,12 +170,16 @@ const createRoom = async (req, res, next) => {
 const updateRoom = async (req, res, next) => {
   try {
     const { name, description, capacity, latitude, longitude } = req.body;
-    await pool.execute(
+    const orgId = req.user ? req.user.org_id : null;
+    const [result] = await pool.execute(
       `UPDATE rooms
        SET name=?, description=?, capacity=?, latitude=?, longitude=?
-       WHERE id=?`,
-      [name, description || null, capacity, latitude || null, longitude || null, req.params.id]
+       WHERE id=? AND (org_id = ? OR (? IS NULL AND org_id IS NULL))`,
+      [name, description || null, capacity, latitude || null, longitude || null, req.params.id, orgId, orgId]
     );
+    if (result.affectedRows === 0) {
+      return res.status(403).json({ success: false, message: "Room not found or access denied" });
+    }
     const [updated] = await pool.execute("SELECT * FROM rooms WHERE id=?", [req.params.id]);
 
     const io = req.app.get("io");
@@ -188,7 +194,14 @@ const updateRoom = async (req, res, next) => {
 /* ─── DELETE /api/rooms/:id ──────────────────────────────────────────────── */
 const deleteRoom = async (req, res, next) => {
   try {
-    await pool.execute("UPDATE rooms SET is_active = 0 WHERE id = ?", [req.params.id]);
+    const orgId = req.user ? req.user.org_id : null;
+    const [result] = await pool.execute(
+      "UPDATE rooms SET is_active = 0 WHERE id = ? AND (org_id = ? OR (? IS NULL AND org_id IS NULL))",
+      [req.params.id, orgId, orgId]
+    );
+    if (result.affectedRows === 0) {
+      return res.status(403).json({ success: false, message: "Room not found or access denied" });
+    }
 
     const io = req.app.get("io");
     emitRoomsUpdate(io);

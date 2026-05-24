@@ -39,8 +39,10 @@ class _CheckinSuccessScreenState extends State<CheckinSuccessScreen>
     );
 
     Future.delayed(const Duration(milliseconds: 200), () {
+      if (!mounted) return;
       _checkController.forward();
       Future.delayed(const Duration(milliseconds: 500), () {
+        if (!mounted) return;
         _cardsController.forward();
       });
     });
@@ -236,13 +238,13 @@ class _CheckinSuccessScreenState extends State<CheckinSuccessScreen>
 
                 AppPrimaryButton(
                   label: 'Back to Dashboard',
-                  onPressed: () => context.go(AppRoutes.attendanceLog),
+                  onPressed: () => context.go(AppRoutes.dashboard),
                 ),
                 const SizedBox(height: 12),
                 GestureDetector(
-                  onTap: () => context.push(AppRoutes.attendanceDetails),
+                  onTap: () => context.go(AppRoutes.attendanceLog),
                   child: const Text(
-                    'View Check-in Details',
+                    'View Attendance Log',
                     style: TextStyle(
                       color: AppColors.primary,
                       fontWeight: FontWeight.w600,
@@ -262,7 +264,8 @@ class _CheckinSuccessScreenState extends State<CheckinSuccessScreen>
 // ─── Check-In Failure Screen ──────────────────────────────────────────────────
 
 class CheckinFailureScreen extends StatelessWidget {
-  const CheckinFailureScreen({super.key});
+  final String reason;
+  const CheckinFailureScreen({super.key, this.reason = 'Verification failed'});
 
   @override
   Widget build(BuildContext context) {
@@ -294,6 +297,12 @@ class CheckinFailureScreen extends StatelessWidget {
                 const Text('Check-in Failed',
                     style: AppTextStyles.displayMedium),
                 const SizedBox(height: 8),
+                Text(
+                  reason,
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.error, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
                 const Text(
                   'We could not verify your identity. Please ensure your face is clearly visible and try again.',
                   style: AppTextStyles.bodyMedium,
@@ -343,9 +352,9 @@ class CheckinFailureScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 AppOutlineButton(
-                  label: 'Manual Check-In',
-                  icon: Icons.edit_rounded,
-                  onPressed: () => context.go(AppRoutes.attendanceLog),
+                  label: 'Back to Dashboard',
+                  icon: Icons.dashboard_rounded,
+                  onPressed: () => context.go(AppRoutes.dashboard),
                 ),
               ],
             ),
@@ -457,7 +466,7 @@ class CheckoutSummaryScreen extends StatelessWidget {
             const SizedBox(height: 32),
             AppPrimaryButton(
               label: 'Back to Dashboard',
-              onPressed: () => context.go(AppRoutes.attendanceLog),
+              onPressed: () => context.go(AppRoutes.dashboard),
             ),
           ],
         ),
