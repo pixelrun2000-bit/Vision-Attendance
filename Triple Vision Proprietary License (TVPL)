@@ -1,0 +1,96 @@
+# Triple Vision Proprietary License (TVPL)
+
+Version 1.0
+
+Copyright © 2026 Ali Ahmed Hammad and Triple Vision. All Rights Reserved.
+
+## 1. Ownership
+
+The Triple Vision Intelligent Face Attendance System, including but not limited to its source code, software architecture, artificial intelligence models, machine learning algorithms, computer vision components, liveness detection mechanisms, face recognition components, databases, APIs, mobile applications, web dashboards, documentation, designs, trademarks, logos, and related materials ("Software") is the exclusive intellectual property of the Licensor.
+
+All rights, title, and interest in and to the Software remain with the Licensor.
+
+## 2. License Grant
+
+Subject to the terms of this License and any applicable commercial agreement, the Licensor may grant the Licensee a limited, non-exclusive, non-transferable, and non-sublicensable right to use the Software solely for its authorized purpose.
+
+This License grants a right to use the Software only. It does not transfer ownership of the Software or any intellectual property rights to the Licensee.
+
+## 3. Restrictions
+
+Without prior written permission from the Licensor, the Licensee may not:
+
+* Copy, reproduce, distribute, publish, or resell the Software.
+* Modify, reverse engineer, decompile, disassemble, or attempt to derive the source code.
+* Create derivative works based on the Software.
+* Use the Software or any part of it to develop a competing product or service.
+* Sell, rent, lease, sublicense, transfer, or provide unauthorized access to the Software.
+* Remove, alter, or hide any copyright, trademark, ownership, or attribution notice.
+* Use the Triple Vision name, logo, brand, or trademarks without written authorization.
+* Extract, copy, redistribute, or commercially exploit the Software's AI models, algorithms, datasets, or trained components.
+
+## 4. Commercial Use
+
+Commercial use of the Software requires a separate written agreement or commercial license issued by the Licensor.
+
+Any organization, company, institution, government entity, school, university, hospital, or other commercial or institutional user must obtain an appropriate license before deploying or using the Software in production.
+
+## 5. Academic and Demonstration Use
+
+The Software may be demonstrated for educational, research, academic, or portfolio purposes only when explicitly authorized by the Licensor.
+
+Such authorization does not grant permission for commercial deployment, redistribution, resale, or creation of derivative products.
+
+## 6. AI and Biometric Components
+
+The Software may include artificial intelligence, facial recognition, liveness detection, biometric processing, fraud detection, behavioral analysis, and location-based verification technologies.
+
+The Licensee is solely responsible for ensuring that its use of the Software complies with all applicable laws, regulations, privacy requirements, consent obligations, and biometric data protection requirements in its jurisdiction.
+
+## 7. Data and Privacy
+
+The Licensee is responsible for obtaining all necessary permissions, notices, and lawful consent required for the collection, processing, storage, and management of personal, facial, biometric, location, and attendance data.
+
+The Licensor does not assume responsibility for unlawful or unauthorized data collection or processing performed by the Licensee.
+
+## 8. No Warranty
+
+The Software is provided "AS IS" and "AS AVAILABLE" without warranties of any kind, whether express, implied, statutory, or otherwise.
+
+The Licensor does not guarantee that the Software will be uninterrupted, error-free, completely secure, or suitable for every specific use case.
+
+## 9. Limitation of Liability
+
+To the maximum extent permitted by applicable law, the Licensor shall not be liable for any direct, indirect, incidental, special, consequential, financial, data-related, operational, or other damages arising from the use or inability to use the Software.
+
+## 10. Termination
+
+This License automatically terminates if the Licensee violates any term of this License.
+
+Upon termination, the Licensee must immediately cease using the Software and, when requested by the Licensor, destroy or return all unauthorized copies and materials containing the Software.
+
+## 11. Intellectual Property Protection
+
+Nothing in this License grants the Licensee ownership of any intellectual property associated with Triple Vision.
+
+All rights not expressly granted under this License are reserved by the Licensor.
+
+## 12. Updates and Modifications
+
+The Licensor reserves the right to modify, update, improve, replace, or discontinue any part of the Software.
+
+Access to future updates, support, maintenance, additional features, or new versions may require a separate agreement.
+
+## 13. Governing Law
+
+This License shall be governed by and interpreted in accordance with the applicable laws agreed upon between the Licensor and Licensee.
+
+## 14. Contact and Licensing
+
+For commercial licensing, partnership, integration, distribution, or other permissions, contact the Licensor or Triple Vision through its official authorized channels.
+
+---
+
+Copyright © 2026 Ali Ahmed Hammad and Triple Vision. All Rights Reserved.
+
+Unauthorized copying, modification, distribution, resale, reverse engineering, or commercial use of this Software is strictly prohibited.
