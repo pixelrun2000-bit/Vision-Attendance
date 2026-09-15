@@ -501,12 +501,12 @@ Triple Vision was developed by a six-member team.
 
 | Member   | Role               |
 | -------- | ------------------ |
-| Member 1 | __________________ |
-| Member 2 | __________________ |
-| Member 3 | __________________ |
-| Member 4 | __________________ |
-| Member 5 | __________________ |
-| Member 6 | __________________ |
+| Member 1 | Ali Ahmed Ali      |
+| Member 2 | Mahmoud Emad       |
+| Member 3 | Marwan Eldeery     |
+| Member 4 | Ahmed Loay         |
+| Member 5 | Abdelwahb Sabry    |
+| Member 6 | Abdallah Sabry     |
 
 Each member contributed to different aspects of the project, including software development, artificial intelligence, computer vision, research, testing, design, and system development.
 
@@ -585,11 +585,7 @@ For:
 
 Contact:
 
-**Email:** __________________________
-
-**GitHub:** _________________________
-
-**Website:** ________________________
+**Email:** pixelrun2000@gmail.com
 
 ---
 
